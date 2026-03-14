@@ -1,0 +1,4 @@
+version: "0.1.0"
+description: "ST7789 170x320 LCD driver over esp_lcd"
+license: "MIT"
+
