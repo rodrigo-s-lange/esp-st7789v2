@@ -122,6 +122,7 @@ static inline bool ready(void);
 static esp_st7789v2_config_t default_config(void);
 static const uint8_t *font5x7_for_char(char c);
 static char *trim_ws(char *s);
+static bool streq_ignore_case(const char *a, const char *b);
 static esp_err_t parse_i32(const char *text, int *out_value);
 static esp_err_t parse_u16_color(const char *text, uint16_t *out_color);
 static esp_err_t parse_pixel_params(const char *param, int *x, int *y, uint16_t *color);
@@ -131,6 +132,9 @@ static esp_err_t parse_line_params(const char *param, int *x0, int *y0, int *x1,
 static esp_err_t parse_triangle_params(const char *param, int *x0, int *y0, int *x1, int *y1, int *x2, int *y2, uint16_t *color);
 static esp_err_t parse_grid_params(const char *param, int *x, int *y, int *width, int *height, int *cols, int *rows, uint16_t *color);
 static esp_err_t parse_text_params(const char *param, int *x, int *y, int *scale, uint16_t *fg, uint16_t *bg, const char **text);
+static esp_err_t parse_text_box_params(const char *param, int *x, int *y, int *width, int *height, int *scale, uint16_t *fg, uint16_t *bg, esp_st7789v2_align_t *align, const char **text);
+static esp_err_t parse_7seg_params(const char *param, int *x, int *y, int *height, int *thickness, uint16_t *fg, uint16_t *bg, const char **text);
+static esp_err_t parse_progress_params(const char *param, int *x, int *y, int *width, int *height, int *min, int *max, int *value, uint16_t *border_color, uint16_t *fill_color, uint16_t *bg_color);
 static void handle_at_lcdclr(const char *param);
 static void handle_at_lcdpx(const char *param);
 static void handle_at_lcdline(const char *param);
@@ -145,6 +149,9 @@ static void handle_at_lcdcirc(const char *param);
 static void handle_at_lcdfcirc(const char *param);
 static void handle_at_lcdtri(const char *param);
 static void handle_at_lcdtxt(const char *param);
+static void handle_at_lcdbox(const char *param);
+static void handle_at_lcd7seg(const char *param);
+static void handle_at_lcdbar(const char *param);
 
 #define LCD_LOGI(...)  do { if (s_state.log_enabled) ESP_LOGI(TAG, __VA_ARGS__); } while (0)
 #define LCD_LOGW(...)  do { if (s_state.log_enabled) ESP_LOGW(TAG, __VA_ARGS__); } while (0)
@@ -211,6 +218,19 @@ static char *trim_ws(char *s)
     }
 
     return s;
+}
+
+static bool streq_ignore_case(const char *a, const char *b)
+{
+    if (a == NULL || b == NULL) return false;
+    while (*a != '\0' && *b != '\0') {
+        if (toupper((unsigned char)*a) != toupper((unsigned char)*b)) {
+            return false;
+        }
+        a++;
+        b++;
+    }
+    return *a == '\0' && *b == '\0';
 }
 
 static esp_err_t parse_i32(const char *text, int *out_value)
@@ -468,6 +488,134 @@ static esp_err_t parse_text_params(const char *param, int *x, int *y, int *scale
     return ESP_OK;
 }
 
+static esp_err_t parse_text_box_params(const char *param, int *x, int *y, int *width, int *height, int *scale, uint16_t *fg, uint16_t *bg, esp_st7789v2_align_t *align, const char **text)
+{
+    if (param == NULL || x == NULL || y == NULL || width == NULL || height == NULL || scale == NULL || fg == NULL || bg == NULL || align == NULL || text == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    static char work[224];
+    strncpy(work, param, sizeof(work) - 1U);
+    work[sizeof(work) - 1U] = '\0';
+
+    char *parts[9] = {0};
+    char *cursor = work;
+    for (int i = 0; i < 9; i++) {
+        parts[i] = cursor;
+        char *comma = strchr(cursor, ',');
+        if (i < 8) {
+            if (comma == NULL) return ESP_ERR_INVALID_ARG;
+            *comma = '\0';
+            cursor = comma + 1;
+        }
+    }
+
+    for (int i = 0; i < 9; i++) {
+        parts[i] = trim_ws(parts[i]);
+    }
+
+    if (parse_i32(parts[0], x) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_i32(parts[1], y) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_i32(parts[2], width) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_i32(parts[3], height) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_i32(parts[4], scale) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_u16_color(parts[5], fg) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_u16_color(parts[6], bg) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parts[8] == NULL || *parts[8] == '\0') return ESP_ERR_INVALID_ARG;
+
+    if (streq_ignore_case(parts[7], "LEFT")) {
+        *align = ESP_ST7789V2_ALIGN_LEFT;
+    } else if (streq_ignore_case(parts[7], "CENTER")) {
+        *align = ESP_ST7789V2_ALIGN_CENTER;
+    } else if (streq_ignore_case(parts[7], "RIGHT")) {
+        *align = ESP_ST7789V2_ALIGN_RIGHT;
+    } else {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    *text = parts[8];
+    return ESP_OK;
+}
+
+static esp_err_t parse_7seg_params(const char *param, int *x, int *y, int *height, int *thickness, uint16_t *fg, uint16_t *bg, const char **text)
+{
+    if (param == NULL || x == NULL || y == NULL || height == NULL || thickness == NULL || fg == NULL || bg == NULL || text == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    static char work[192];
+    strncpy(work, param, sizeof(work) - 1U);
+    work[sizeof(work) - 1U] = '\0';
+
+    char *parts[7] = {0};
+    char *cursor = work;
+    for (int i = 0; i < 7; i++) {
+        parts[i] = cursor;
+        char *comma = strchr(cursor, ',');
+        if (i < 6) {
+            if (comma == NULL) return ESP_ERR_INVALID_ARG;
+            *comma = '\0';
+            cursor = comma + 1;
+        }
+    }
+
+    for (int i = 0; i < 7; i++) {
+        parts[i] = trim_ws(parts[i]);
+    }
+
+    if (parse_i32(parts[0], x) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_i32(parts[1], y) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_i32(parts[2], height) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_i32(parts[3], thickness) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_u16_color(parts[4], fg) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_u16_color(parts[5], bg) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parts[6] == NULL || *parts[6] == '\0') return ESP_ERR_INVALID_ARG;
+
+    *text = parts[6];
+    return ESP_OK;
+}
+
+static esp_err_t parse_progress_params(const char *param, int *x, int *y, int *width, int *height, int *min, int *max, int *value, uint16_t *border_color, uint16_t *fill_color, uint16_t *bg_color)
+{
+    if (param == NULL || x == NULL || y == NULL || width == NULL || height == NULL || min == NULL || max == NULL || value == NULL || border_color == NULL || fill_color == NULL || bg_color == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    char work[160];
+    strncpy(work, param, sizeof(work) - 1U);
+    work[sizeof(work) - 1U] = '\0';
+
+    char *parts[10] = {0};
+    char *cursor = work;
+    for (int i = 0; i < 10; i++) {
+        parts[i] = cursor;
+        char *comma = strchr(cursor, ',');
+        if (i < 9) {
+            if (comma == NULL) return ESP_ERR_INVALID_ARG;
+            *comma = '\0';
+            cursor = comma + 1;
+        } else if (comma != NULL) {
+            return ESP_ERR_INVALID_ARG;
+        }
+    }
+
+    for (int i = 0; i < 10; i++) {
+        parts[i] = trim_ws(parts[i]);
+    }
+
+    if (parse_i32(parts[0], x) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_i32(parts[1], y) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_i32(parts[2], width) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_i32(parts[3], height) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_i32(parts[4], min) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_i32(parts[5], max) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_i32(parts[6], value) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_u16_color(parts[7], border_color) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_u16_color(parts[8], fill_color) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_u16_color(parts[9], bg_color) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    return ESP_OK;
+}
+
 static const uint8_t *font5x7_for_char(char c)
 {
     static const uint8_t glyph_space[7] = {0, 0, 0, 0, 0, 0, 0};
@@ -645,6 +793,9 @@ esp_err_t esp_st7789v2_init(bool log_enabled, bool at_enabled)
         ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDFCIRC", handle_at_lcdfcirc, "AT+LCDFCIRC=160,85,40,0,0xFFFF"), TAG, "register AT failed");
         ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDTRI", handle_at_lcdtri, "AT+LCDTRI=40,140,160,20,280,140,0xFFFF"), TAG, "register AT failed");
         ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDTXT", handle_at_lcdtxt, "AT+LCDTXT=10,10,2,0xFFFF,0x0000,HELLO"), TAG, "register AT failed");
+        ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDBOX", handle_at_lcdbox, "AT+LCDBOX=10,10,120,30,2,0xFFFF,0x0000,CENTER,HELLO"), TAG, "register AT failed");
+        ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCD7SEG", handle_at_lcd7seg, "AT+LCD7SEG=10,10,48,8,0xFFFF,0x0000,12:34"), TAG, "register AT failed");
+        ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDBAR", handle_at_lcdbar, "AT+LCDBAR=10,10,200,20,0,100,75,0xFFFF,0x06C0,0x0000"), TAG, "register AT failed");
     }
     LCD_LOGI("initialized %dx%d gap=%d,%d", s_state.config.width, s_state.config.height, s_state.config.x_gap, s_state.config.y_gap);
     return ESP_OK;
@@ -761,10 +912,16 @@ esp_err_t esp_st7789v2_draw_round_rect(int x, int y, int width, int height, int 
     if (radius > max_radius) radius = max_radius;
     if (radius == 0) return esp_st7789v2_draw_rect(x, y, width, height, color);
 
-    ESP_RETURN_ON_ERROR(esp_st7789v2_draw_hline(x + radius, y, width - (2 * radius), color), TAG, "round rect failed");
-    ESP_RETURN_ON_ERROR(esp_st7789v2_draw_hline(x + radius, y + height - 1, width - (2 * radius), color), TAG, "round rect failed");
-    ESP_RETURN_ON_ERROR(esp_st7789v2_draw_vline(x, y + radius, height - (2 * radius), color), TAG, "round rect failed");
-    ESP_RETURN_ON_ERROR(esp_st7789v2_draw_vline(x + width - 1, y + radius, height - (2 * radius), color), TAG, "round rect failed");
+    int inner_w = width - (2 * radius);
+    int inner_h = height - (2 * radius);
+    if (inner_w > 0) {
+        ESP_RETURN_ON_ERROR(esp_st7789v2_draw_hline(x + radius, y, inner_w, color), TAG, "round rect failed");
+        ESP_RETURN_ON_ERROR(esp_st7789v2_draw_hline(x + radius, y + height - 1, inner_w, color), TAG, "round rect failed");
+    }
+    if (inner_h > 0) {
+        ESP_RETURN_ON_ERROR(esp_st7789v2_draw_vline(x, y + radius, inner_h, color), TAG, "round rect failed");
+        ESP_RETURN_ON_ERROR(esp_st7789v2_draw_vline(x + width - 1, y + radius, inner_h, color), TAG, "round rect failed");
+    }
 
     int cx1 = x + radius;
     int cy1 = y + radius;
@@ -893,9 +1050,15 @@ esp_err_t esp_st7789v2_fill_round_rect(int x, int y, int width, int height, int 
     if (radius > max_radius) radius = max_radius;
     if (radius == 0) return esp_st7789v2_fill_rect(x, y, width, height, color);
 
-    ESP_RETURN_ON_ERROR(esp_st7789v2_fill_rect(x + radius, y, width - (2 * radius), height, color), TAG, "fill round rect failed");
-    ESP_RETURN_ON_ERROR(esp_st7789v2_fill_rect(x, y + radius, radius, height - (2 * radius), color), TAG, "fill round rect failed");
-    ESP_RETURN_ON_ERROR(esp_st7789v2_fill_rect(x + width - radius, y + radius, radius, height - (2 * radius), color), TAG, "fill round rect failed");
+    int inner_w = width - (2 * radius);
+    int inner_h = height - (2 * radius);
+    if (inner_w > 0) {
+        ESP_RETURN_ON_ERROR(esp_st7789v2_fill_rect(x + radius, y, inner_w, height, color), TAG, "fill round rect failed");
+    }
+    if (inner_h > 0 && radius > 0) {
+        ESP_RETURN_ON_ERROR(esp_st7789v2_fill_rect(x, y + radius, radius, inner_h, color), TAG, "fill round rect failed");
+        ESP_RETURN_ON_ERROR(esp_st7789v2_fill_rect(x + width - radius, y + radius, radius, inner_h, color), TAG, "fill round rect failed");
+    }
 
     int dx = radius;
     int dy = 0;
@@ -906,10 +1069,14 @@ esp_err_t esp_st7789v2_fill_round_rect(int x, int y, int width, int height, int 
         int inner_w1 = width - (2 * (radius - dy));
         int inner_w2 = width - (2 * (radius - dx));
 
-        ESP_RETURN_ON_ERROR(esp_st7789v2_draw_hline(x + radius - dy, top_y, inner_w1, color), TAG, "fill round rect failed");
-        ESP_RETURN_ON_ERROR(esp_st7789v2_draw_hline(x + radius - dy, y + height - radius - 1 + dx, inner_w1, color), TAG, "fill round rect failed");
-        ESP_RETURN_ON_ERROR(esp_st7789v2_draw_hline(x + radius - dx, y + radius - dy, inner_w2, color), TAG, "fill round rect failed");
-        ESP_RETURN_ON_ERROR(esp_st7789v2_draw_hline(x + radius - dx, y + height - radius - 1 + dy, inner_w2, color), TAG, "fill round rect failed");
+        if (inner_w1 > 0) {
+            ESP_RETURN_ON_ERROR(esp_st7789v2_draw_hline(x + radius - dy, top_y, inner_w1, color), TAG, "fill round rect failed");
+            ESP_RETURN_ON_ERROR(esp_st7789v2_draw_hline(x + radius - dy, y + height - radius - 1 + dx, inner_w1, color), TAG, "fill round rect failed");
+        }
+        if (inner_w2 > 0) {
+            ESP_RETURN_ON_ERROR(esp_st7789v2_draw_hline(x + radius - dx, y + radius - dy, inner_w2, color), TAG, "fill round rect failed");
+            ESP_RETURN_ON_ERROR(esp_st7789v2_draw_hline(x + radius - dx, y + height - radius - 1 + dy, inner_w2, color), TAG, "fill round rect failed");
+        }
 
         dy++;
         if (err < 0) {
@@ -965,6 +1132,11 @@ esp_err_t esp_st7789v2_fill_screen(uint16_t color)
     return esp_st7789v2_fill_rect(0, 0, s_state.config.width, s_state.config.height, color);
 }
 
+esp_err_t esp_st7789v2_clear_area(int x, int y, int width, int height, uint16_t bg)
+{
+    return esp_st7789v2_fill_rect(x, y, width, height, bg);
+}
+
 esp_err_t esp_st7789v2_draw_char(int x, int y, char c, uint16_t fg, uint16_t bg, int scale)
 {
     if (!ready()) return ESP_ERR_INVALID_STATE;
@@ -1015,6 +1187,175 @@ esp_err_t esp_st7789v2_draw_text(int x, int y, const char *text, uint16_t fg, ui
     return ESP_OK;
 }
 
+esp_err_t esp_st7789v2_draw_7seg_char(int x, int y, char c, int height, int thickness, uint16_t fg, uint16_t bg)
+{
+    if (!ready()) return ESP_ERR_INVALID_STATE;
+    if (height <= 0 || thickness <= 0) return ESP_ERR_INVALID_ARG;
+
+    const int width = ((height * 3) / 5 > thickness * 3) ? (height * 3) / 5 : thickness * 3;
+    const int radius = thickness / 2;
+    const int pad = thickness / 3;
+    const int hseg_x = x + (thickness / 2);
+    const int hseg_w = width - thickness;
+    const int vseg_h = (height - (3 * thickness)) / 2;
+    const int left_x = x;
+    const int right_x = x + width - thickness;
+    const int top_y = y;
+    const int mid_y = y + thickness + vseg_h;
+    const int upper_y = y + thickness;
+    const int lower_y = y + (2 * thickness) + vseg_h;
+    const int bottom_y = y + height - thickness;
+
+    if (hseg_w <= 0 || vseg_h <= 0) return ESP_ERR_INVALID_ARG;
+    if (width <= (2 * thickness)) return ESP_ERR_INVALID_ARG;
+
+    ESP_RETURN_ON_ERROR(esp_st7789v2_clear_area(x, y, width, height, bg), TAG, "7seg clear failed");
+
+    if (c == ' ') return ESP_OK;
+    if (c == 'o' || c == 'O' || c == '*') {
+        int seg_t = (thickness * 2) / 3;
+        if (seg_t < 3) seg_t = 3;
+
+        int mini_w = (width * 2) / 3;
+        int mini_h = height / 2;
+        if (mini_w < (seg_t * 4)) mini_w = seg_t * 4;
+        if (mini_h < (seg_t * 4)) mini_h = seg_t * 4;
+
+        int mini_x = x + width - mini_w - 1;
+        int mini_y = y;
+        int mini_v = (mini_h - (2 * seg_t)) / 2;
+        int mini_inner_w = mini_w - seg_t;
+        int mini_r = seg_t / 2;
+
+        if (mini_x < x) mini_x = x;
+        if (mini_v <= 0 || mini_inner_w <= 0) return ESP_ERR_INVALID_ARG;
+
+        /* degree symbol as mini 7-seg with A, B, G, F on */
+        ESP_RETURN_ON_ERROR(esp_st7789v2_fill_round_rect(mini_x + (seg_t / 2), mini_y, mini_inner_w, seg_t, mini_r, fg), TAG, "7seg degree failed");
+        ESP_RETURN_ON_ERROR(esp_st7789v2_fill_round_rect(mini_x, mini_y + seg_t, seg_t, mini_v, mini_r, fg), TAG, "7seg degree failed");
+        ESP_RETURN_ON_ERROR(esp_st7789v2_fill_round_rect(mini_x + mini_w - seg_t, mini_y + seg_t, seg_t, mini_v, mini_r, fg), TAG, "7seg degree failed");
+        ESP_RETURN_ON_ERROR(esp_st7789v2_fill_round_rect(mini_x + (seg_t / 2), mini_y + seg_t + mini_v, mini_inner_w, seg_t, mini_r, fg), TAG, "7seg degree failed");
+        return ESP_OK;
+    }
+    if (c == '.') {
+        return esp_st7789v2_fill_circle(x + width - radius - 1, y + height - radius - 1, radius > 0 ? radius : 1, fg);
+    }
+    if (c == ':') {
+        int dot_r = radius > 0 ? radius : 1;
+        int dot_x = x + (width / 2);
+        ESP_RETURN_ON_ERROR(esp_st7789v2_fill_circle(dot_x, y + (height / 3), dot_r, fg), TAG, "7seg colon failed");
+        return esp_st7789v2_fill_circle(dot_x, y + ((height * 2) / 3), dot_r, fg);
+    }
+    if (c == ',') {
+        int dot_r = radius > 0 ? radius : 1;
+        ESP_RETURN_ON_ERROR(esp_st7789v2_fill_circle(x + width - dot_r - 1, y + height - dot_r - 1, dot_r, fg), TAG, "7seg comma failed");
+        return esp_st7789v2_draw_line(x + width - dot_r - 1, y + height - 1, x + width - thickness - pad, y + height + thickness - 1, fg);
+    }
+
+    uint8_t mask = 0;
+    switch (c) {
+        case '0': mask = 0x3F; break;
+        case '1': mask = 0x06; break;
+        case '2': mask = 0x5B; break;
+        case '3': mask = 0x4F; break;
+        case '4': mask = 0x66; break;
+        case '5': mask = 0x6D; break;
+        case '6': mask = 0x7D; break;
+        case '7': mask = 0x07; break;
+        case '8': mask = 0x7F; break;
+        case '9': mask = 0x6F; break;
+        case 'A':
+        case 'a': mask = 0x77; break;
+        case 'B':
+        case 'b': mask = 0x7C; break;
+        case 'C':
+        case 'c': mask = 0x39; break;
+        case 'D':
+        case 'd': mask = 0x5E; break;
+        case 'E':
+        case 'e': mask = 0x79; break;
+        case 'F':
+        case 'f': mask = 0x71; break;
+        case 'G':
+        case 'g': mask = 0x6F; break;
+        case 'H':
+        case 'h': mask = 0x76; break;
+        case 'I':
+        case 'i': mask = 0x06; break;
+        case 'J':
+        case 'j': mask = 0x1E; break;
+        case 'L':
+        case 'l': mask = 0x38; break;
+        case 'N':
+        case 'n': mask = 0x54; break;
+        case 'O':
+            break;
+        case 'P':
+        case 'p': mask = 0x73; break;
+        case 'R':
+        case 'r': mask = 0x50; break;
+        case 'S':
+        case 's': mask = 0x6D; break;
+        case 'T':
+        case 't': mask = 0x78; break;
+        case 'U':
+        case 'u': mask = 0x3E; break;
+        case 'Y':
+        case 'y': mask = 0x6E; break;
+        default: return ESP_OK;
+    }
+
+    if (mask & 0x01) ESP_RETURN_ON_ERROR(esp_st7789v2_fill_round_rect(hseg_x, top_y, hseg_w, thickness, radius, fg), TAG, "7seg failed");
+    if (mask & 0x02) ESP_RETURN_ON_ERROR(esp_st7789v2_fill_round_rect(right_x, upper_y, thickness, vseg_h, radius, fg), TAG, "7seg failed");
+    if (mask & 0x04) ESP_RETURN_ON_ERROR(esp_st7789v2_fill_round_rect(right_x, lower_y, thickness, vseg_h, radius, fg), TAG, "7seg failed");
+    if (mask & 0x08) ESP_RETURN_ON_ERROR(esp_st7789v2_fill_round_rect(hseg_x, bottom_y, hseg_w, thickness, radius, fg), TAG, "7seg failed");
+    if (mask & 0x10) ESP_RETURN_ON_ERROR(esp_st7789v2_fill_round_rect(left_x, lower_y, thickness, vseg_h, radius, fg), TAG, "7seg failed");
+    if (mask & 0x20) ESP_RETURN_ON_ERROR(esp_st7789v2_fill_round_rect(left_x, upper_y, thickness, vseg_h, radius, fg), TAG, "7seg failed");
+    if (mask & 0x40) ESP_RETURN_ON_ERROR(esp_st7789v2_fill_round_rect(hseg_x, mid_y, hseg_w, thickness, radius, fg), TAG, "7seg failed");
+
+    return ESP_OK;
+}
+
+int esp_st7789v2_7seg_text_width(const char *text, int height, int thickness)
+{
+    if (text == NULL || height <= 0 || thickness <= 0) return 0;
+
+    const int width = ((height * 3) / 5 > thickness * 3) ? (height * 3) / 5 : thickness * 3;
+    const int spacing = thickness;
+    int glyphs = 0;
+    for (size_t i = 0; text[i] != '\0'; i++) {
+        if ((unsigned char)text[i] == 0xC2 && (unsigned char)text[i + 1] == 0xB0) {
+            i++;
+        }
+        glyphs++;
+    }
+    if (glyphs == 0) return 0;
+    return (glyphs * (width + spacing)) - spacing;
+}
+
+esp_err_t esp_st7789v2_draw_7seg_text(int x, int y, const char *text, int height, int thickness, uint16_t fg, uint16_t bg)
+{
+    if (!ready()) return ESP_ERR_INVALID_STATE;
+    if (text == NULL || height <= 0 || thickness <= 0) return ESP_ERR_INVALID_ARG;
+
+    const int width = ((height * 3) / 5 > thickness * 3) ? (height * 3) / 5 : thickness * 3;
+    const int spacing = thickness;
+    int cursor_x = x;
+
+    for (size_t i = 0; text[i] != '\0'; i++) {
+        char c = text[i];
+        if ((unsigned char)text[i] == 0xC2 && (unsigned char)text[i + 1] == 0xB0) {
+            c = 'O';
+            i++;
+        }
+        esp_err_t err = esp_st7789v2_draw_7seg_char(cursor_x, y, c, height, thickness, fg, bg);
+        if (err != ESP_OK) return err;
+        cursor_x += width + spacing;
+    }
+
+    return ESP_OK;
+}
+
 int esp_st7789v2_text_width(const char *text, int scale)
 {
     if (text == NULL || scale <= 0) return 0;
@@ -1022,6 +1363,89 @@ int esp_st7789v2_text_width(const char *text, int scale)
     size_t len = strlen(text);
     if (len == 0U) return 0;
     return (int)(((len * 6U) - 1U) * (size_t)scale);
+}
+
+esp_err_t esp_st7789v2_draw_text_box(int x, int y, int width, int height, const char *text, uint16_t fg, uint16_t bg, int scale, esp_st7789v2_align_t align)
+{
+    if (!ready()) return ESP_ERR_INVALID_STATE;
+    if (text == NULL || width <= 0 || height <= 0 || scale <= 0) return ESP_ERR_INVALID_ARG;
+
+    int text_width = esp_st7789v2_text_width(text, scale);
+    int text_height = 7 * scale;
+    if (text_width <= 0 || text_height <= 0) return ESP_ERR_INVALID_ARG;
+    if (text_width > width || text_height > height) return ESP_ERR_INVALID_ARG;
+
+    ESP_RETURN_ON_ERROR(esp_st7789v2_clear_area(x, y, width, height, bg), TAG, "clear area failed");
+
+    int draw_x = x;
+    switch (align) {
+        case ESP_ST7789V2_ALIGN_LEFT:
+            draw_x = x;
+            break;
+        case ESP_ST7789V2_ALIGN_CENTER:
+            draw_x = x + ((width - text_width) / 2);
+            break;
+        case ESP_ST7789V2_ALIGN_RIGHT:
+            draw_x = x + (width - text_width);
+            break;
+        default:
+            return ESP_ERR_INVALID_ARG;
+    }
+
+    int draw_y = y + ((height - text_height) / 2);
+    return esp_st7789v2_draw_text(draw_x, draw_y, text, fg, bg, scale);
+}
+
+esp_err_t esp_st7789v2_update_text_box_if_changed(esp_st7789v2_text_box_t *box, const char *text)
+{
+    if (!ready()) return ESP_ERR_INVALID_STATE;
+    if (box == NULL || text == NULL) return ESP_ERR_INVALID_ARG;
+    if (!box->initialized) return ESP_ERR_INVALID_STATE;
+
+    if (strncmp(box->last_text, text, sizeof(box->last_text)) == 0) {
+        return ESP_OK;
+    }
+
+    ESP_RETURN_ON_ERROR(esp_st7789v2_draw_text_box(box->x, box->y, box->width, box->height, text, box->fg, box->bg, box->scale, box->align), TAG, "text box update failed");
+    strncpy(box->last_text, text, sizeof(box->last_text) - 1U);
+    box->last_text[sizeof(box->last_text) - 1U] = '\0';
+    return ESP_OK;
+}
+
+esp_err_t esp_st7789v2_draw_progress_bar(int x, int y, int width, int height, int min, int max, int value, uint16_t border_color, uint16_t fill_color, uint16_t bg_color)
+{
+    if (!ready()) return ESP_ERR_INVALID_STATE;
+    if (width <= 2 || height <= 2) return ESP_ERR_INVALID_ARG;
+    if (max <= min) return ESP_ERR_INVALID_ARG;
+
+    if (value < min) value = min;
+    if (value > max) value = max;
+
+    const int inner_x = x + 1;
+    const int inner_y = y + 1;
+    const int inner_w = width - 2;
+    const int inner_h = height - 2;
+    const int range = max - min;
+    const int fill_w = (inner_w * (value - min)) / range;
+
+    ESP_RETURN_ON_ERROR(esp_st7789v2_draw_rect(x, y, width, height, border_color), TAG, "progress border failed");
+    ESP_RETURN_ON_ERROR(esp_st7789v2_fill_rect(inner_x, inner_y, inner_w, inner_h, bg_color), TAG, "progress bg failed");
+    if (fill_w > 0) {
+        ESP_RETURN_ON_ERROR(esp_st7789v2_fill_rect(inner_x, inner_y, fill_w, inner_h, fill_color), TAG, "progress fill failed");
+    }
+    return ESP_OK;
+}
+
+esp_err_t esp_st7789v2_update_progress_bar_if_changed(esp_st7789v2_progress_bar_t *bar, int value)
+{
+    if (!ready()) return ESP_ERR_INVALID_STATE;
+    if (bar == NULL) return ESP_ERR_INVALID_ARG;
+    if (!bar->initialized) return ESP_ERR_INVALID_STATE;
+    if (bar->value == value) return ESP_OK;
+
+    ESP_RETURN_ON_ERROR(esp_st7789v2_draw_progress_bar(bar->x, bar->y, bar->width, bar->height, bar->min, bar->max, value, bar->border_color, bar->fill_color, bar->bg_color), TAG, "progress update failed");
+    bar->value = value;
+    return ESP_OK;
 }
 
 esp_err_t esp_st7789v2_draw_text_aligned(int y, const char *text, uint16_t fg, uint16_t bg, int scale, esp_st7789v2_align_t align)
@@ -1317,6 +1741,61 @@ static void handle_at_lcdtxt(const char *param)
     esp_err_t err = esp_st7789v2_draw_text(x, y, text, fg, bg, scale);
     if (err != ESP_OK) {
         AT(R "ERROR: text failed (%s)", esp_err_to_name(err));
+        return;
+    }
+    AT(G "OK");
+}
+
+static void handle_at_lcdbox(const char *param)
+{
+    int x = 0, y = 0, width = 0, height = 0, scale = 0;
+    uint16_t fg = 0, bg = 0;
+    esp_st7789v2_align_t align = ESP_ST7789V2_ALIGN_LEFT;
+    const char *text = NULL;
+    if (parse_text_box_params(param, &x, &y, &width, &height, &scale, &fg, &bg, &align, &text) != ESP_OK) {
+        AT(R "ERROR: use AT+LCDBOX=x,y,w,h,scale,fg,bg,LEFT|CENTER|RIGHT,text");
+        return;
+    }
+
+    esp_err_t err = esp_st7789v2_draw_text_box(x, y, width, height, text, fg, bg, scale, align);
+    if (err != ESP_OK) {
+        AT(R "ERROR: text box failed (%s)", esp_err_to_name(err));
+        return;
+    }
+    AT(G "OK");
+}
+
+static void handle_at_lcd7seg(const char *param)
+{
+    int x = 0, y = 0, height = 0, thickness = 0;
+    uint16_t fg = 0, bg = 0;
+    const char *text = NULL;
+    if (parse_7seg_params(param, &x, &y, &height, &thickness, &fg, &bg, &text) != ESP_OK) {
+        AT(R "ERROR: use AT+LCD7SEG=x,y,height,thickness,fg,bg,text");
+        return;
+    }
+
+    esp_err_t err = esp_st7789v2_draw_7seg_text(x, y, text, height, thickness, fg, bg);
+    if (err != ESP_OK) {
+        AT(R "ERROR: 7seg failed (%s)", esp_err_to_name(err));
+        return;
+    }
+    AT(G "OK");
+}
+
+static void handle_at_lcdbar(const char *param)
+{
+    int x = 0, y = 0, width = 0, height = 0;
+    int min = 0, max = 0, value = 0;
+    uint16_t border_color = 0, fill_color = 0, bg_color = 0;
+    if (parse_progress_params(param, &x, &y, &width, &height, &min, &max, &value, &border_color, &fill_color, &bg_color) != ESP_OK) {
+        AT(R "ERROR: use AT+LCDBAR=x,y,w,h,min,max,value,border,fill,bg");
+        return;
+    }
+
+    esp_err_t err = esp_st7789v2_draw_progress_bar(x, y, width, height, min, max, value, border_color, fill_color, bg_color);
+    if (err != ESP_OK) {
+        AT(R "ERROR: progress failed (%s)", esp_err_to_name(err));
         return;
     }
     AT(G "OK");
