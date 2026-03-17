@@ -126,15 +126,24 @@ static esp_err_t parse_i32(const char *text, int *out_value);
 static esp_err_t parse_u16_color(const char *text, uint16_t *out_color);
 static esp_err_t parse_pixel_params(const char *param, int *x, int *y, uint16_t *color);
 static esp_err_t parse_rect_params(const char *param, int *a, int *b, int *c, int *d, uint16_t *color);
+static esp_err_t parse_round_rect_params(const char *param, int *x, int *y, int *width, int *height, int *radius, uint16_t *color);
+static esp_err_t parse_line_params(const char *param, int *x0, int *y0, int *x1, int *y1, uint16_t *color);
+static esp_err_t parse_triangle_params(const char *param, int *x0, int *y0, int *x1, int *y1, int *x2, int *y2, uint16_t *color);
 static esp_err_t parse_grid_params(const char *param, int *x, int *y, int *width, int *height, int *cols, int *rows, uint16_t *color);
 static esp_err_t parse_text_params(const char *param, int *x, int *y, int *scale, uint16_t *fg, uint16_t *bg, const char **text);
 static void handle_at_lcdclr(const char *param);
 static void handle_at_lcdpx(const char *param);
+static void handle_at_lcdline(const char *param);
 static void handle_at_lcdhl(const char *param);
 static void handle_at_lcdvl(const char *param);
 static void handle_at_lcdrect(const char *param);
+static void handle_at_lcdrrect(const char *param);
 static void handle_at_lcdfill(const char *param);
+static void handle_at_lcdfrrect(const char *param);
 static void handle_at_lcdgrid(const char *param);
+static void handle_at_lcdcirc(const char *param);
+static void handle_at_lcdfcirc(const char *param);
+static void handle_at_lcdtri(const char *param);
 static void handle_at_lcdtxt(const char *param);
 
 #define LCD_LOGI(...)  do { if (s_state.log_enabled) ESP_LOGI(TAG, __VA_ARGS__); } while (0)
@@ -301,6 +310,86 @@ static esp_err_t parse_rect_params(const char *param, int *a, int *b, int *c, in
     if (parse_i32(parts[2], c) != ESP_OK) return ESP_ERR_INVALID_ARG;
     if (parse_i32(parts[3], d) != ESP_OK) return ESP_ERR_INVALID_ARG;
     if (parse_u16_color(parts[4], color) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    return ESP_OK;
+}
+
+static esp_err_t parse_round_rect_params(const char *param, int *x, int *y, int *width, int *height, int *radius, uint16_t *color)
+{
+    if (param == NULL || x == NULL || y == NULL || width == NULL || height == NULL || radius == NULL || color == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    char work[128];
+    strncpy(work, param, sizeof(work) - 1U);
+    work[sizeof(work) - 1U] = '\0';
+
+    char *parts[6] = {0};
+    char *cursor = work;
+    for (int i = 0; i < 6; i++) {
+        parts[i] = cursor;
+        char *comma = strchr(cursor, ',');
+        if (i < 5) {
+            if (comma == NULL) return ESP_ERR_INVALID_ARG;
+            *comma = '\0';
+            cursor = comma + 1;
+        } else if (comma != NULL) {
+            return ESP_ERR_INVALID_ARG;
+        }
+    }
+
+    for (int i = 0; i < 6; i++) {
+        parts[i] = trim_ws(parts[i]);
+    }
+
+    if (parse_i32(parts[0], x) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_i32(parts[1], y) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_i32(parts[2], width) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_i32(parts[3], height) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_i32(parts[4], radius) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_u16_color(parts[5], color) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    return ESP_OK;
+}
+
+static esp_err_t parse_line_params(const char *param, int *x0, int *y0, int *x1, int *y1, uint16_t *color)
+{
+    return parse_rect_params(param, x0, y0, x1, y1, color);
+}
+
+static esp_err_t parse_triangle_params(const char *param, int *x0, int *y0, int *x1, int *y1, int *x2, int *y2, uint16_t *color)
+{
+    if (param == NULL || x0 == NULL || y0 == NULL || x1 == NULL || y1 == NULL || x2 == NULL || y2 == NULL || color == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    char work[128];
+    strncpy(work, param, sizeof(work) - 1U);
+    work[sizeof(work) - 1U] = '\0';
+
+    char *parts[7] = {0};
+    char *cursor = work;
+    for (int i = 0; i < 7; i++) {
+        parts[i] = cursor;
+        char *comma = strchr(cursor, ',');
+        if (i < 6) {
+            if (comma == NULL) return ESP_ERR_INVALID_ARG;
+            *comma = '\0';
+            cursor = comma + 1;
+        } else if (comma != NULL) {
+            return ESP_ERR_INVALID_ARG;
+        }
+    }
+
+    for (int i = 0; i < 7; i++) {
+        parts[i] = trim_ws(parts[i]);
+    }
+
+    if (parse_i32(parts[0], x0) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_i32(parts[1], y0) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_i32(parts[2], x1) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_i32(parts[3], y1) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_i32(parts[4], x2) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_i32(parts[5], y2) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_u16_color(parts[6], color) != ESP_OK) return ESP_ERR_INVALID_ARG;
     return ESP_OK;
 }
 
@@ -544,11 +633,17 @@ esp_err_t esp_st7789v2_init(bool log_enabled, bool at_enabled)
     if (s_state.at_enabled) {
         ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDCLR", handle_at_lcdclr, "AT+LCDCLR=0x0000"), TAG, "register AT failed");
         ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDPX", handle_at_lcdpx, "AT+LCDPX=10,10,0xFFFF"), TAG, "register AT failed");
+        ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDLINE", handle_at_lcdline, "AT+LCDLINE=0,0,319,169,0xFFFF"), TAG, "register AT failed");
         ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDHL", handle_at_lcdhl, "AT+LCDHL=10,20,100,0,0xFFFF"), TAG, "register AT failed");
         ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDVL", handle_at_lcdvl, "AT+LCDVL=20,10,0,80,0xFFFF"), TAG, "register AT failed");
         ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDRECT", handle_at_lcdrect, "AT+LCDRECT=10,10,80,40,0xFFFF"), TAG, "register AT failed");
+        ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDRRECT", handle_at_lcdrrect, "AT+LCDRRECT=20,20,120,60,12,0xFFFF"), TAG, "register AT failed");
         ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDFILL", handle_at_lcdfill, "AT+LCDFILL=10,10,80,40,0xFFFF"), TAG, "register AT failed");
+        ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDFRRECT", handle_at_lcdfrrect, "AT+LCDFRRECT=20,20,120,60,12,0xFFFF"), TAG, "register AT failed");
         ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDGRID", handle_at_lcdgrid, "AT+LCDGRID=10,10,300,150,10,5,0xFFFF"), TAG, "register AT failed");
+        ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDCIRC", handle_at_lcdcirc, "AT+LCDCIRC=160,85,40,0,0xFFFF"), TAG, "register AT failed");
+        ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDFCIRC", handle_at_lcdfcirc, "AT+LCDFCIRC=160,85,40,0,0xFFFF"), TAG, "register AT failed");
+        ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDTRI", handle_at_lcdtri, "AT+LCDTRI=40,140,160,20,280,140,0xFFFF"), TAG, "register AT failed");
         ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDTXT", handle_at_lcdtxt, "AT+LCDTXT=10,10,2,0xFFFF,0x0000,HELLO"), TAG, "register AT failed");
     }
     LCD_LOGI("initialized %dx%d gap=%d,%d", s_state.config.width, s_state.config.height, s_state.config.x_gap, s_state.config.y_gap);
@@ -603,6 +698,35 @@ esp_err_t esp_st7789v2_draw_pixel(int x, int y, uint16_t color)
     return esp_st7789v2_fill_rect(x, y, 1, 1, color);
 }
 
+esp_err_t esp_st7789v2_draw_line(int x0, int y0, int x1, int y1, uint16_t color)
+{
+    if (!ready()) return ESP_ERR_INVALID_STATE;
+
+    int dx = abs(x1 - x0);
+    int sx = (x0 < x1) ? 1 : -1;
+    int dy = -abs(y1 - y0);
+    int sy = (y0 < y1) ? 1 : -1;
+    int err = dx + dy;
+
+    while (true) {
+        esp_err_t draw_err = esp_st7789v2_draw_pixel(x0, y0, color);
+        if (draw_err != ESP_OK) return draw_err;
+        if (x0 == x1 && y0 == y1) break;
+
+        int e2 = 2 * err;
+        if (e2 >= dy) {
+            err += dy;
+            x0 += sx;
+        }
+        if (e2 <= dx) {
+            err += dx;
+            y0 += sy;
+        }
+    }
+
+    return ESP_OK;
+}
+
 esp_err_t esp_st7789v2_draw_hline(int x, int y, int width, uint16_t color)
 {
     return esp_st7789v2_fill_rect(x, y, width, 1, color);
@@ -628,6 +752,50 @@ esp_err_t esp_st7789v2_draw_rect(int x, int y, int width, int height, uint16_t c
     return esp_st7789v2_draw_vline(x + width - 1, y, height, color);
 }
 
+esp_err_t esp_st7789v2_draw_round_rect(int x, int y, int width, int height, int radius, uint16_t color)
+{
+    if (!ready()) return ESP_ERR_INVALID_STATE;
+    if (width <= 0 || height <= 0 || radius < 0) return ESP_ERR_INVALID_ARG;
+
+    int max_radius = (width < height ? width : height) / 2;
+    if (radius > max_radius) radius = max_radius;
+    if (radius == 0) return esp_st7789v2_draw_rect(x, y, width, height, color);
+
+    ESP_RETURN_ON_ERROR(esp_st7789v2_draw_hline(x + radius, y, width - (2 * radius), color), TAG, "round rect failed");
+    ESP_RETURN_ON_ERROR(esp_st7789v2_draw_hline(x + radius, y + height - 1, width - (2 * radius), color), TAG, "round rect failed");
+    ESP_RETURN_ON_ERROR(esp_st7789v2_draw_vline(x, y + radius, height - (2 * radius), color), TAG, "round rect failed");
+    ESP_RETURN_ON_ERROR(esp_st7789v2_draw_vline(x + width - 1, y + radius, height - (2 * radius), color), TAG, "round rect failed");
+
+    int cx1 = x + radius;
+    int cy1 = y + radius;
+    int cx2 = x + width - radius - 1;
+    int cy2 = y + height - radius - 1;
+    int dx = radius;
+    int dy = 0;
+    int err = 1 - dx;
+
+    while (dx >= dy) {
+        ESP_RETURN_ON_ERROR(esp_st7789v2_draw_pixel(cx1 - dx, cy1 - dy, color), TAG, "round rect failed");
+        ESP_RETURN_ON_ERROR(esp_st7789v2_draw_pixel(cx1 - dy, cy1 - dx, color), TAG, "round rect failed");
+        ESP_RETURN_ON_ERROR(esp_st7789v2_draw_pixel(cx2 + dx, cy1 - dy, color), TAG, "round rect failed");
+        ESP_RETURN_ON_ERROR(esp_st7789v2_draw_pixel(cx2 + dy, cy1 - dx, color), TAG, "round rect failed");
+        ESP_RETURN_ON_ERROR(esp_st7789v2_draw_pixel(cx1 - dx, cy2 + dy, color), TAG, "round rect failed");
+        ESP_RETURN_ON_ERROR(esp_st7789v2_draw_pixel(cx1 - dy, cy2 + dx, color), TAG, "round rect failed");
+        ESP_RETURN_ON_ERROR(esp_st7789v2_draw_pixel(cx2 + dx, cy2 + dy, color), TAG, "round rect failed");
+        ESP_RETURN_ON_ERROR(esp_st7789v2_draw_pixel(cx2 + dy, cy2 + dx, color), TAG, "round rect failed");
+
+        dy++;
+        if (err < 0) {
+            err += (2 * dy) + 1;
+        } else {
+            dx--;
+            err += 2 * (dy - dx) + 1;
+        }
+    }
+
+    return ESP_OK;
+}
+
 esp_err_t esp_st7789v2_draw_grid(int x, int y, int width, int height, int cols, int rows, uint16_t color)
 {
     if (!ready()) return ESP_ERR_INVALID_STATE;
@@ -645,6 +813,111 @@ esp_err_t esp_st7789v2_draw_grid(int x, int y, int width, int height, int cols, 
         int gy = y + ((height * row) / rows);
         err = esp_st7789v2_draw_hline(x, gy, width, color);
         if (err != ESP_OK) return err;
+    }
+
+    return ESP_OK;
+}
+
+esp_err_t esp_st7789v2_draw_circle(int cx, int cy, int radius, uint16_t color)
+{
+    if (!ready()) return ESP_ERR_INVALID_STATE;
+    if (radius < 0) return ESP_ERR_INVALID_ARG;
+
+    int x = radius;
+    int y = 0;
+    int err = 1 - x;
+
+    while (x >= y) {
+        ESP_RETURN_ON_ERROR(esp_st7789v2_draw_pixel(cx + x, cy + y, color), TAG, "circle pixel failed");
+        ESP_RETURN_ON_ERROR(esp_st7789v2_draw_pixel(cx + y, cy + x, color), TAG, "circle pixel failed");
+        ESP_RETURN_ON_ERROR(esp_st7789v2_draw_pixel(cx - y, cy + x, color), TAG, "circle pixel failed");
+        ESP_RETURN_ON_ERROR(esp_st7789v2_draw_pixel(cx - x, cy + y, color), TAG, "circle pixel failed");
+        ESP_RETURN_ON_ERROR(esp_st7789v2_draw_pixel(cx - x, cy - y, color), TAG, "circle pixel failed");
+        ESP_RETURN_ON_ERROR(esp_st7789v2_draw_pixel(cx - y, cy - x, color), TAG, "circle pixel failed");
+        ESP_RETURN_ON_ERROR(esp_st7789v2_draw_pixel(cx + y, cy - x, color), TAG, "circle pixel failed");
+        ESP_RETURN_ON_ERROR(esp_st7789v2_draw_pixel(cx + x, cy - y, color), TAG, "circle pixel failed");
+
+        y++;
+        if (err < 0) {
+            err += (2 * y) + 1;
+        } else {
+            x--;
+            err += 2 * (y - x) + 1;
+        }
+    }
+
+    return ESP_OK;
+}
+
+esp_err_t esp_st7789v2_fill_circle(int cx, int cy, int radius, uint16_t color)
+{
+    if (!ready()) return ESP_ERR_INVALID_STATE;
+    if (radius < 0) return ESP_ERR_INVALID_ARG;
+
+    int x = radius;
+    int y = 0;
+    int err = 1 - x;
+
+    while (x >= y) {
+        ESP_RETURN_ON_ERROR(esp_st7789v2_draw_hline(cx - x, cy + y, (2 * x) + 1, color), TAG, "fill circle failed");
+        ESP_RETURN_ON_ERROR(esp_st7789v2_draw_hline(cx - x, cy - y, (2 * x) + 1, color), TAG, "fill circle failed");
+        ESP_RETURN_ON_ERROR(esp_st7789v2_draw_hline(cx - y, cy + x, (2 * y) + 1, color), TAG, "fill circle failed");
+        ESP_RETURN_ON_ERROR(esp_st7789v2_draw_hline(cx - y, cy - x, (2 * y) + 1, color), TAG, "fill circle failed");
+
+        y++;
+        if (err < 0) {
+            err += (2 * y) + 1;
+        } else {
+            x--;
+            err += 2 * (y - x) + 1;
+        }
+    }
+
+    return ESP_OK;
+}
+
+esp_err_t esp_st7789v2_draw_triangle(int x0, int y0, int x1, int y1, int x2, int y2, uint16_t color)
+{
+    if (!ready()) return ESP_ERR_INVALID_STATE;
+    ESP_RETURN_ON_ERROR(esp_st7789v2_draw_line(x0, y0, x1, y1, color), TAG, "triangle edge failed");
+    ESP_RETURN_ON_ERROR(esp_st7789v2_draw_line(x1, y1, x2, y2, color), TAG, "triangle edge failed");
+    return esp_st7789v2_draw_line(x2, y2, x0, y0, color);
+}
+
+esp_err_t esp_st7789v2_fill_round_rect(int x, int y, int width, int height, int radius, uint16_t color)
+{
+    if (!ready()) return ESP_ERR_INVALID_STATE;
+    if (width <= 0 || height <= 0 || radius < 0) return ESP_ERR_INVALID_ARG;
+
+    int max_radius = (width < height ? width : height) / 2;
+    if (radius > max_radius) radius = max_radius;
+    if (radius == 0) return esp_st7789v2_fill_rect(x, y, width, height, color);
+
+    ESP_RETURN_ON_ERROR(esp_st7789v2_fill_rect(x + radius, y, width - (2 * radius), height, color), TAG, "fill round rect failed");
+    ESP_RETURN_ON_ERROR(esp_st7789v2_fill_rect(x, y + radius, radius, height - (2 * radius), color), TAG, "fill round rect failed");
+    ESP_RETURN_ON_ERROR(esp_st7789v2_fill_rect(x + width - radius, y + radius, radius, height - (2 * radius), color), TAG, "fill round rect failed");
+
+    int dx = radius;
+    int dy = 0;
+    int err = 1 - dx;
+
+    while (dx >= dy) {
+        int top_y = y + radius - dx;
+        int inner_w1 = width - (2 * (radius - dy));
+        int inner_w2 = width - (2 * (radius - dx));
+
+        ESP_RETURN_ON_ERROR(esp_st7789v2_draw_hline(x + radius - dy, top_y, inner_w1, color), TAG, "fill round rect failed");
+        ESP_RETURN_ON_ERROR(esp_st7789v2_draw_hline(x + radius - dy, y + height - radius - 1 + dx, inner_w1, color), TAG, "fill round rect failed");
+        ESP_RETURN_ON_ERROR(esp_st7789v2_draw_hline(x + radius - dx, y + radius - dy, inner_w2, color), TAG, "fill round rect failed");
+        ESP_RETURN_ON_ERROR(esp_st7789v2_draw_hline(x + radius - dx, y + height - radius - 1 + dy, inner_w2, color), TAG, "fill round rect failed");
+
+        dy++;
+        if (err < 0) {
+            err += (2 * dy) + 1;
+        } else {
+            dx--;
+            err += 2 * (dy - dx) + 1;
+        }
     }
 
     return ESP_OK;
@@ -844,6 +1117,23 @@ static void handle_at_lcdpx(const char *param)
     AT(G "OK");
 }
 
+static void handle_at_lcdline(const char *param)
+{
+    int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+    uint16_t color = 0;
+    if (parse_line_params(param, &x0, &y0, &x1, &y1, &color) != ESP_OK) {
+        AT(R "ERROR: use AT+LCDLINE=x0,y0,x1,y1,cor");
+        return;
+    }
+
+    esp_err_t err = esp_st7789v2_draw_line(x0, y0, x1, y1, color);
+    if (err != ESP_OK) {
+        AT(R "ERROR: line failed (%s)", esp_err_to_name(err));
+        return;
+    }
+    AT(G "OK");
+}
+
 static void handle_at_lcdhl(const char *param)
 {
     int x = 0, y = 0, width = 0, unused = 0;
@@ -895,6 +1185,23 @@ static void handle_at_lcdrect(const char *param)
     AT(G "OK");
 }
 
+static void handle_at_lcdrrect(const char *param)
+{
+    int x = 0, y = 0, width = 0, height = 0, radius = 0;
+    uint16_t color = 0;
+    if (parse_round_rect_params(param, &x, &y, &width, &height, &radius, &color) != ESP_OK) {
+        AT(R "ERROR: use AT+LCDRRECT=x,y,w,h,r,cor");
+        return;
+    }
+
+    esp_err_t err = esp_st7789v2_draw_round_rect(x, y, width, height, radius, color);
+    if (err != ESP_OK) {
+        AT(R "ERROR: round rect failed (%s)", esp_err_to_name(err));
+        return;
+    }
+    AT(G "OK");
+}
+
 static void handle_at_lcdfill(const char *param)
 {
     int x = 0, y = 0, width = 0, height = 0;
@@ -912,6 +1219,23 @@ static void handle_at_lcdfill(const char *param)
     AT(G "OK");
 }
 
+static void handle_at_lcdfrrect(const char *param)
+{
+    int x = 0, y = 0, width = 0, height = 0, radius = 0;
+    uint16_t color = 0;
+    if (parse_round_rect_params(param, &x, &y, &width, &height, &radius, &color) != ESP_OK) {
+        AT(R "ERROR: use AT+LCDFRRECT=x,y,w,h,r,cor");
+        return;
+    }
+
+    esp_err_t err = esp_st7789v2_fill_round_rect(x, y, width, height, radius, color);
+    if (err != ESP_OK) {
+        AT(R "ERROR: fill round rect failed (%s)", esp_err_to_name(err));
+        return;
+    }
+    AT(G "OK");
+}
+
 static void handle_at_lcdgrid(const char *param)
 {
     int x = 0, y = 0, width = 0, height = 0, cols = 0, rows = 0;
@@ -924,6 +1248,57 @@ static void handle_at_lcdgrid(const char *param)
     esp_err_t err = esp_st7789v2_draw_grid(x, y, width, height, cols, rows, color);
     if (err != ESP_OK) {
         AT(R "ERROR: grid failed (%s)", esp_err_to_name(err));
+        return;
+    }
+    AT(G "OK");
+}
+
+static void handle_at_lcdcirc(const char *param)
+{
+    int cx = 0, cy = 0, radius = 0, unused = 0;
+    uint16_t color = 0;
+    if (parse_rect_params(param, &cx, &cy, &radius, &unused, &color) != ESP_OK) {
+        AT(R "ERROR: use AT+LCDCIRC=cx,cy,r,0,cor");
+        return;
+    }
+
+    esp_err_t err = esp_st7789v2_draw_circle(cx, cy, radius, color);
+    if (err != ESP_OK) {
+        AT(R "ERROR: circle failed (%s)", esp_err_to_name(err));
+        return;
+    }
+    AT(G "OK");
+}
+
+static void handle_at_lcdfcirc(const char *param)
+{
+    int cx = 0, cy = 0, radius = 0, unused = 0;
+    uint16_t color = 0;
+    if (parse_rect_params(param, &cx, &cy, &radius, &unused, &color) != ESP_OK) {
+        AT(R "ERROR: use AT+LCDFCIRC=cx,cy,r,0,cor");
+        return;
+    }
+
+    esp_err_t err = esp_st7789v2_fill_circle(cx, cy, radius, color);
+    if (err != ESP_OK) {
+        AT(R "ERROR: fill circle failed (%s)", esp_err_to_name(err));
+        return;
+    }
+    AT(G "OK");
+}
+
+static void handle_at_lcdtri(const char *param)
+{
+    int x0 = 0, y0 = 0, x1 = 0, y1 = 0, x2 = 0, y2 = 0;
+    uint16_t color = 0;
+    if (parse_triangle_params(param, &x0, &y0, &x1, &y1, &x2, &y2, &color) != ESP_OK) {
+        AT(R "ERROR: use AT+LCDTRI=x0,y0,x1,y1,x2,y2,cor");
+        return;
+    }
+
+    esp_err_t err = esp_st7789v2_draw_triangle(x0, y0, x1, y1, x2, y2, color);
+    if (err != ESP_OK) {
+        AT(R "ERROR: triangle failed (%s)", esp_err_to_name(err));
         return;
     }
     AT(G "OK");

@@ -55,10 +55,16 @@ esp_err_t esp_st7789v2_set_rotation(esp_st7789v2_rotation_t rotation);
 esp_err_t esp_st7789v2_set_invert(bool invert);
 
 esp_err_t esp_st7789v2_draw_pixel(int x, int y, uint16_t color);
+esp_err_t esp_st7789v2_draw_line(int x0, int y0, int x1, int y1, uint16_t color);
 esp_err_t esp_st7789v2_draw_hline(int x, int y, int width, uint16_t color);
 esp_err_t esp_st7789v2_draw_vline(int x, int y, int height, uint16_t color);
 esp_err_t esp_st7789v2_draw_rect(int x, int y, int width, int height, uint16_t color);
+esp_err_t esp_st7789v2_draw_round_rect(int x, int y, int width, int height, int radius, uint16_t color);
 esp_err_t esp_st7789v2_draw_grid(int x, int y, int width, int height, int cols, int rows, uint16_t color);
+esp_err_t esp_st7789v2_draw_circle(int cx, int cy, int radius, uint16_t color);
+esp_err_t esp_st7789v2_fill_circle(int cx, int cy, int radius, uint16_t color);
+esp_err_t esp_st7789v2_draw_triangle(int x0, int y0, int x1, int y1, int x2, int y2, uint16_t color);
+esp_err_t esp_st7789v2_fill_round_rect(int x, int y, int width, int height, int radius, uint16_t color);
 esp_err_t esp_st7789v2_fill_rect(int x, int y, int width, int height, uint16_t color);
 esp_err_t esp_st7789v2_fill_screen(uint16_t color);
 esp_err_t esp_st7789v2_draw_char(int x, int y, char c, uint16_t fg, uint16_t bg, int scale);
