@@ -134,6 +134,7 @@ static esp_err_t parse_grid_params(const char *param, int *x, int *y, int *width
 static esp_err_t parse_text_params(const char *param, int *x, int *y, int *scale, uint16_t *fg, uint16_t *bg, const char **text);
 static esp_err_t parse_text_box_params(const char *param, int *x, int *y, int *width, int *height, int *scale, uint16_t *fg, uint16_t *bg, esp_st7789v2_align_t *align, const char **text);
 static esp_err_t parse_7seg_params(const char *param, int *x, int *y, int *height, int *thickness, uint16_t *fg, uint16_t *bg, const char **text);
+static esp_err_t parse_7seg_box_params(const char *param, int *x, int *y, int *width, int *height, int *thickness, uint16_t *fg, uint16_t *bg, esp_st7789v2_align_t *align, const char **text);
 static esp_err_t parse_progress_params(const char *param, int *x, int *y, int *width, int *height, int *min, int *max, int *value, uint16_t *border_color, uint16_t *fill_color, uint16_t *bg_color);
 static void handle_at_lcdclr(const char *param);
 static void handle_at_lcdpx(const char *param);
@@ -148,9 +149,11 @@ static void handle_at_lcdgrid(const char *param);
 static void handle_at_lcdcirc(const char *param);
 static void handle_at_lcdfcirc(const char *param);
 static void handle_at_lcdtri(const char *param);
+static void handle_at_lcdftri(const char *param);
 static void handle_at_lcdtxt(const char *param);
 static void handle_at_lcdbox(const char *param);
 static void handle_at_lcd7seg(const char *param);
+static void handle_at_lcd7box(const char *param);
 static void handle_at_lcdbar(const char *param);
 
 #define LCD_LOGI(...)  do { if (s_state.log_enabled) ESP_LOGI(TAG, __VA_ARGS__); } while (0)
@@ -575,6 +578,55 @@ static esp_err_t parse_7seg_params(const char *param, int *x, int *y, int *heigh
     return ESP_OK;
 }
 
+static esp_err_t parse_7seg_box_params(const char *param, int *x, int *y, int *width, int *height, int *thickness, uint16_t *fg, uint16_t *bg, esp_st7789v2_align_t *align, const char **text)
+{
+    if (param == NULL || x == NULL || y == NULL || width == NULL || height == NULL || thickness == NULL || fg == NULL || bg == NULL || align == NULL || text == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    static char work[224];
+    strncpy(work, param, sizeof(work) - 1U);
+    work[sizeof(work) - 1U] = '\0';
+
+    char *parts[9] = {0};
+    char *cursor = work;
+    for (int i = 0; i < 9; i++) {
+        parts[i] = cursor;
+        char *comma = strchr(cursor, ',');
+        if (i < 8) {
+            if (comma == NULL) return ESP_ERR_INVALID_ARG;
+            *comma = '\0';
+            cursor = comma + 1;
+        }
+    }
+
+    for (int i = 0; i < 9; i++) {
+        parts[i] = trim_ws(parts[i]);
+    }
+
+    if (parse_i32(parts[0], x) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_i32(parts[1], y) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_i32(parts[2], width) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_i32(parts[3], height) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_i32(parts[4], thickness) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_u16_color(parts[5], fg) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parse_u16_color(parts[6], bg) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (parts[8] == NULL || *parts[8] == '\0') return ESP_ERR_INVALID_ARG;
+
+    if (streq_ignore_case(parts[7], "LEFT")) {
+        *align = ESP_ST7789V2_ALIGN_LEFT;
+    } else if (streq_ignore_case(parts[7], "CENTER")) {
+        *align = ESP_ST7789V2_ALIGN_CENTER;
+    } else if (streq_ignore_case(parts[7], "RIGHT")) {
+        *align = ESP_ST7789V2_ALIGN_RIGHT;
+    } else {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    *text = parts[8];
+    return ESP_OK;
+}
+
 static esp_err_t parse_progress_params(const char *param, int *x, int *y, int *width, int *height, int *min, int *max, int *value, uint16_t *border_color, uint16_t *fill_color, uint16_t *bg_color)
 {
     if (param == NULL || x == NULL || y == NULL || width == NULL || height == NULL || min == NULL || max == NULL || value == NULL || border_color == NULL || fill_color == NULL || bg_color == NULL) {
@@ -792,9 +844,11 @@ esp_err_t esp_st7789v2_init(bool log_enabled, bool at_enabled)
         ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDCIRC", handle_at_lcdcirc, "AT+LCDCIRC=160,85,40,0,0xFFFF"), TAG, "register AT failed");
         ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDFCIRC", handle_at_lcdfcirc, "AT+LCDFCIRC=160,85,40,0,0xFFFF"), TAG, "register AT failed");
         ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDTRI", handle_at_lcdtri, "AT+LCDTRI=40,140,160,20,280,140,0xFFFF"), TAG, "register AT failed");
+        ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDFTRI", handle_at_lcdftri, "AT+LCDFTRI=40,140,160,20,280,140,0xFFFF"), TAG, "register AT failed");
         ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDTXT", handle_at_lcdtxt, "AT+LCDTXT=10,10,2,0xFFFF,0x0000,HELLO"), TAG, "register AT failed");
         ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDBOX", handle_at_lcdbox, "AT+LCDBOX=10,10,120,30,2,0xFFFF,0x0000,CENTER,HELLO"), TAG, "register AT failed");
         ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCD7SEG", handle_at_lcd7seg, "AT+LCD7SEG=10,10,48,8,0xFFFF,0x0000,12:34"), TAG, "register AT failed");
+        ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCD7BOX", handle_at_lcd7box, "AT+LCD7BOX=10,10,150,48,8,0xFFFF,0x0000,RIGHT,25°C"), TAG, "register AT failed");
         ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDBAR", handle_at_lcdbar, "AT+LCDBAR=10,10,200,20,0,100,75,0xFFFF,0x06C0,0x0000"), TAG, "register AT failed");
     }
     LCD_LOGI("initialized %dx%d gap=%d,%d", s_state.config.width, s_state.config.height, s_state.config.x_gap, s_state.config.y_gap);
@@ -1039,6 +1093,52 @@ esp_err_t esp_st7789v2_draw_triangle(int x0, int y0, int x1, int y1, int x2, int
     ESP_RETURN_ON_ERROR(esp_st7789v2_draw_line(x0, y0, x1, y1, color), TAG, "triangle edge failed");
     ESP_RETURN_ON_ERROR(esp_st7789v2_draw_line(x1, y1, x2, y2, color), TAG, "triangle edge failed");
     return esp_st7789v2_draw_line(x2, y2, x0, y0, color);
+}
+
+esp_err_t esp_st7789v2_fill_triangle(int x0, int y0, int x1, int y1, int x2, int y2, uint16_t color)
+{
+    if (!ready()) return ESP_ERR_INVALID_STATE;
+
+    if (y0 > y1) { int tx = x0; int ty = y0; x0 = x1; y0 = y1; x1 = tx; y1 = ty; }
+    if (y1 > y2) { int tx = x1; int ty = y1; x1 = x2; y1 = y2; x2 = tx; y2 = ty; }
+    if (y0 > y1) { int tx = x0; int ty = y0; x0 = x1; y0 = y1; x1 = tx; y1 = ty; }
+
+    if (y0 == y2) {
+        int min_x = x0;
+        int max_x = x0;
+        if (x1 < min_x) min_x = x1;
+        if (x2 < min_x) min_x = x2;
+        if (x1 > max_x) max_x = x1;
+        if (x2 > max_x) max_x = x2;
+        return esp_st7789v2_draw_hline(min_x, y0, (max_x - min_x) + 1, color);
+    }
+
+    for (int y = y0; y <= y2; y++) {
+        int xa = x0;
+        int xb = x0;
+
+        if (y2 != y0) {
+            xa = x0 + ((x2 - x0) * (y - y0)) / (y2 - y0);
+        }
+
+        if (y < y1) {
+            if (y1 != y0) xb = x0 + ((x1 - x0) * (y - y0)) / (y1 - y0);
+            else xb = x1;
+        } else {
+            if (y2 != y1) xb = x1 + ((x2 - x1) * (y - y1)) / (y2 - y1);
+            else xb = x2;
+        }
+
+        if (xa > xb) {
+            int t = xa;
+            xa = xb;
+            xb = t;
+        }
+
+        ESP_RETURN_ON_ERROR(esp_st7789v2_draw_hline(xa, y, (xb - xa) + 1, color), TAG, "fill triangle failed");
+    }
+
+    return ESP_OK;
 }
 
 esp_err_t esp_st7789v2_fill_round_rect(int x, int y, int width, int height, int radius, uint16_t color)
@@ -1353,6 +1453,47 @@ esp_err_t esp_st7789v2_draw_7seg_text(int x, int y, const char *text, int height
         cursor_x += width + spacing;
     }
 
+    return ESP_OK;
+}
+
+esp_err_t esp_st7789v2_draw_7seg_box(int x, int y, int width, int height, int thickness, const char *text, uint16_t fg, uint16_t bg, esp_st7789v2_align_t align)
+{
+    if (!ready()) return ESP_ERR_INVALID_STATE;
+    if (text == NULL || width <= 0 || height <= 0 || thickness <= 0) return ESP_ERR_INVALID_ARG;
+
+    int text_width = esp_st7789v2_7seg_text_width(text, height, thickness);
+    if (text_width <= 0 || text_width > width) return ESP_ERR_INVALID_ARG;
+
+    ESP_RETURN_ON_ERROR(esp_st7789v2_clear_area(x, y, width, height, bg), TAG, "7seg box clear failed");
+
+    int draw_x = x;
+    switch (align) {
+        case ESP_ST7789V2_ALIGN_LEFT:
+            draw_x = x;
+            break;
+        case ESP_ST7789V2_ALIGN_CENTER:
+            draw_x = x + ((width - text_width) / 2);
+            break;
+        case ESP_ST7789V2_ALIGN_RIGHT:
+            draw_x = x + (width - text_width);
+            break;
+        default:
+            return ESP_ERR_INVALID_ARG;
+    }
+
+    return esp_st7789v2_draw_7seg_text(draw_x, y, text, height, thickness, fg, bg);
+}
+
+esp_err_t esp_st7789v2_update_7seg_box_if_changed(esp_st7789v2_7seg_box_t *box, const char *text)
+{
+    if (!ready()) return ESP_ERR_INVALID_STATE;
+    if (box == NULL || text == NULL) return ESP_ERR_INVALID_ARG;
+    if (!box->initialized) return ESP_ERR_INVALID_STATE;
+    if (strncmp(box->last_text, text, sizeof(box->last_text)) == 0) return ESP_OK;
+
+    ESP_RETURN_ON_ERROR(esp_st7789v2_draw_7seg_box(box->x, box->y, box->width, box->height, box->thickness, text, box->fg, box->bg, box->align), TAG, "7seg box update failed");
+    strncpy(box->last_text, text, sizeof(box->last_text) - 1U);
+    box->last_text[sizeof(box->last_text) - 1U] = '\0';
     return ESP_OK;
 }
 
@@ -1728,6 +1869,23 @@ static void handle_at_lcdtri(const char *param)
     AT(G "OK");
 }
 
+static void handle_at_lcdftri(const char *param)
+{
+    int x0 = 0, y0 = 0, x1 = 0, y1 = 0, x2 = 0, y2 = 0;
+    uint16_t color = 0;
+    if (parse_triangle_params(param, &x0, &y0, &x1, &y1, &x2, &y2, &color) != ESP_OK) {
+        AT(R "ERROR: use AT+LCDFTRI=x0,y0,x1,y1,x2,y2,cor");
+        return;
+    }
+
+    esp_err_t err = esp_st7789v2_fill_triangle(x0, y0, x1, y1, x2, y2, color);
+    if (err != ESP_OK) {
+        AT(R "ERROR: fill triangle failed (%s)", esp_err_to_name(err));
+        return;
+    }
+    AT(G "OK");
+}
+
 static void handle_at_lcdtxt(const char *param)
 {
     int x = 0, y = 0, scale = 0;
@@ -1778,6 +1936,25 @@ static void handle_at_lcd7seg(const char *param)
     esp_err_t err = esp_st7789v2_draw_7seg_text(x, y, text, height, thickness, fg, bg);
     if (err != ESP_OK) {
         AT(R "ERROR: 7seg failed (%s)", esp_err_to_name(err));
+        return;
+    }
+    AT(G "OK");
+}
+
+static void handle_at_lcd7box(const char *param)
+{
+    int x = 0, y = 0, width = 0, height = 0, thickness = 0;
+    uint16_t fg = 0, bg = 0;
+    esp_st7789v2_align_t align = ESP_ST7789V2_ALIGN_LEFT;
+    const char *text = NULL;
+    if (parse_7seg_box_params(param, &x, &y, &width, &height, &thickness, &fg, &bg, &align, &text) != ESP_OK) {
+        AT(R "ERROR: use AT+LCD7BOX=x,y,w,h,t,fg,bg,LEFT|CENTER|RIGHT,text");
+        return;
+    }
+
+    esp_err_t err = esp_st7789v2_draw_7seg_box(x, y, width, height, thickness, text, fg, bg, align);
+    if (err != ESP_OK) {
+        AT(R "ERROR: 7seg box failed (%s)", esp_err_to_name(err));
         return;
     }
     AT(G "OK");

@@ -1,135 +1,99 @@
 # esp_st7789v2 commands
 
-Quando `esp_st7789v2_init(log_enabled, true)` e usado, a lib registra os comandos abaixo.
+When `esp_st7789v2_init(log_enabled, true)` is used, the component registers the commands below.
 
-## Limpeza e pixel
+## Clear and pixel
 
-`AT+LCDCLR=<cor>`
-- limpa a tela inteira com a cor informada
-- se omitido, usa `BLACK`
+`AT+LCDCLR=<color>`
+- clears the full visible screen
 
-Exemplo:
+`AT+LCDPX=x,y,color`
+- draws one pixel at visible coordinates
+
+## Lines and rectangles
+
+`AT+LCDLINE=x0,y0,x1,y1,color`
+- draws an arbitrary line
+
+`AT+LCDHL=x,y,width,0,color`
+- draws a horizontal line
+
+`AT+LCDVL=x,y,0,height,color`
+- draws a vertical line
+
+`AT+LCDRECT=x,y,w,h,color`
+- draws a rectangle outline
+
+`AT+LCDRRECT=x,y,w,h,r,color`
+- draws a rounded rectangle outline
+
+`AT+LCDFILL=x,y,w,h,color`
+- fills a rectangle
+
+`AT+LCDFRRECT=x,y,w,h,r,color`
+- fills a rounded rectangle
+
+## Grid, circle and triangle
+
+`AT+LCDGRID=x,y,w,h,cols,rows,color`
+- draws a rectangular grid
+
+`AT+LCDCIRC=cx,cy,r,0,color`
+- draws a circle outline
+
+`AT+LCDFCIRC=cx,cy,r,0,color`
+- draws a filled circle
+
+`AT+LCDTRI=x0,y0,x1,y1,x2,y2,color`
+- draws a triangle outline
+
+`AT+LCDFTRI=x0,y0,x1,y1,x2,y2,color`
+- draws a filled triangle
+
+## Bitmap text
+
+`AT+LCDTXT=x,y,scale,fg,bg,text`
+- draws `5x7` bitmap text
+
+`AT+LCDBOX=x,y,w,h,scale,fg,bg,LEFT|CENTER|RIGHT,text`
+- clears a fixed box and redraws bitmap text aligned inside it
+
+## 7-segment text
+
+`AT+LCD7SEG=x,y,height,thickness,fg,bg,text`
+- draws 7-segment style text
+- supported glyphs:
+  - `0..9`
+  - `A,B,C,D,E,F,G,H,I,J,L,N,P,R,S,T,U,Y`
+  - `.`, `:`, `,`
+  - degree aliases: `°`, `O`, `o`, `*`
+
+`AT+LCD7BOX=x,y,w,h,t,fg,bg,LEFT|CENTER|RIGHT,text`
+- clears a fixed box and redraws 7-segment text aligned inside it
+
+## Progress bar
+
+`AT+LCDBAR=x,y,w,h,min,max,value,border,fill,bg`
+- draws a horizontal progress bar with border, background and proportional fill
+
+## Examples
+
 ```text
 AT+LCDCLR=0x0000
-```
-
-`AT+LCDPX=x,y,cor`
-- desenha um pixel em `x,y`
-
-Exemplo:
-```text
 AT+LCDPX=0,0,0xFFFF
-```
-
-## Linhas e retangulos
-
-`AT+LCDLINE=x0,y0,x1,y1,cor`
-- desenha linha arbitraria
-
-`AT+LCDHL=x,y,width,0,cor`
-- desenha linha horizontal
-
-`AT+LCDVL=x,y,0,height,cor`
-- desenha linha vertical
-
-`AT+LCDRECT=x,y,w,h,cor`
-- desenha retangulo de contorno
-
-`AT+LCDRRECT=x,y,w,h,r,cor`
-- desenha retangulo com bordas arredondadas
-
-`AT+LCDFILL=x,y,w,h,cor`
-- preenche retangulo
-
-`AT+LCDFRRECT=x,y,w,h,r,cor`
-- preenche retangulo arredondado
-
-Exemplos:
-```text
 AT+LCDLINE=0,0,319,169,0xFFFF
 AT+LCDRECT=10,10,80,40,0xFFFF
 AT+LCDRRECT=20,20,120,60,12,0xFFFF
 AT+LCDFILL=20,20,40,20,0x06C0
 AT+LCDFRRECT=160,20,120,60,16,0x06C0
-```
-
-## Grade, circulo e triangulo
-
-`AT+LCDGRID=x,y,w,h,cols,rows,cor`
-- desenha grade retangular
-
-`AT+LCDCIRC=cx,cy,r,0,cor`
-- desenha circulo
-
-`AT+LCDFCIRC=cx,cy,r,0,cor`
-- desenha circulo preenchido
-
-`AT+LCDTRI=x0,y0,x1,y1,x2,y2,cor`
-- desenha triangulo
-
-Exemplos:
-```text
-AT+LCDGRID=10,10,300,150,10,5,0xFFFF
+AT+LCDGRID=10,10,300,150,10,5,0x738E
 AT+LCDCIRC=160,85,40,0,0xFEC0
 AT+LCDFCIRC=160,85,25,0,0x06C0
 AT+LCDTRI=40,140,160,20,280,140,0x0018
-```
-
-## Texto bitmap
-
-`AT+LCDTXT=x,y,scale,fg,bg,text`
-- desenha texto `5x7`
-- `scale` multiplica tamanho da fonte
-
-Exemplo:
-```text
+AT+LCDFTRI=40,140,160,20,280,140,0x0018
 AT+LCDTXT=10,10,2,0xFFFF,0x0000,HELLO
-```
-
-`AT+LCDBOX=x,y,w,h,scale,fg,bg,LEFT|CENTER|RIGHT,text`
-- limpa a caixa
-- desenha o texto alinhado dentro da area
-- pensado para atualizacao local sem flicker
-
-Exemplo:
-```text
 AT+LCDBOX=10,10,120,30,2,0xFFFF,0x0000,CENTER,HELLO
-```
-
-## Texto 7 segmentos
-
-`AT+LCD7SEG=x,y,height,thickness,fg,bg,text`
-- desenha texto em estilo `7seg`
-- suporte atual:
-  - `0..9`
-  - `A,B,C,D,E,F,G,H,I,J,L,N,P,R,S,T,U,Y`
-  - `.`
-  - `:`
-  - `,`
-  - `grau`
-- para grau:
-  - `Â°`
-  - `O`
-  - `o`
-  - `*`
-
-Exemplos:
-```text
-AT+LCD7SEG=10,10,48,8,0xFFFF,0x0000,12:34
-AT+LCD7SEG=10,70,42,6,0xFEC0,0x0000,25.4
-AT+LCD7SEG=10,120,36,5,0x07FF,0x0000,25Â°C
-```
-
-## Barra de progresso
-
-`AT+LCDBAR=x,y,w,h,min,max,value,border,fill,bg`
-- desenha barra de progresso horizontal
-- borda de `1 px`
-- preenchimento proporcional ao intervalo `[min,max]`
-
-Exemplos:
-```text
+AT+LCD7SEG=10,10,48,8,0xFFFF,0x0000,25°C
+AT+LCD7BOX=10,10,150,48,8,0xFFFF,0x0000,RIGHT,25°C
 AT+LCDBAR=10,10,200,20,0,100,75,0xFFFF,0x06C0,0x0000
-AT+LCDBAR=10,40,200,20,0,100,25,0xFFFF,0xF400,0x0000
-AT+LCDBAR=10,70,280,16,0,1000,630,0x738E,0x07FF,0x0000
 ```

@@ -80,6 +80,20 @@ typedef struct {
     bool initialized;
 } esp_st7789v2_progress_bar_t;
 
+/* State container for partial 7-segment updates inside a fixed area. */
+typedef struct {
+    int x;
+    int y;
+    int width;
+    int height;
+    int thickness;
+    uint16_t fg;
+    uint16_t bg;
+    esp_st7789v2_align_t align;
+    bool initialized;
+    char last_text[32];
+} esp_st7789v2_7seg_box_t;
+
 /* Initializes the display subsystem. Enable AT to register LCD test commands. */
 esp_err_t esp_st7789v2_init(bool log_enabled, bool at_enabled);
 /* Releases panel, IO and SPI resources allocated by the driver. */
@@ -112,6 +126,8 @@ esp_err_t esp_st7789v2_draw_circle(int cx, int cy, int radius, uint16_t color);
 esp_err_t esp_st7789v2_fill_circle(int cx, int cy, int radius, uint16_t color);
 /* Draws a triangle outline using three points. */
 esp_err_t esp_st7789v2_draw_triangle(int x0, int y0, int x1, int y1, int x2, int y2, uint16_t color);
+/* Draws a filled triangle using three points. */
+esp_err_t esp_st7789v2_fill_triangle(int x0, int y0, int x1, int y1, int x2, int y2, uint16_t color);
 /* Draws a filled rounded rectangle. Radius is clamped to the box size. */
 esp_err_t esp_st7789v2_fill_round_rect(int x, int y, int width, int height, int radius, uint16_t color);
 /* Fills a rectangular area. */
@@ -128,6 +144,10 @@ esp_err_t esp_st7789v2_draw_text(int x, int y, const char *text, uint16_t fg, ui
 esp_err_t esp_st7789v2_draw_7seg_char(int x, int y, char c, int height, int thickness, uint16_t fg, uint16_t bg);
 /* Draws a string in the custom 7-segment style. */
 esp_err_t esp_st7789v2_draw_7seg_text(int x, int y, const char *text, int height, int thickness, uint16_t fg, uint16_t bg);
+/* Clears a fixed area and redraws 7-segment text aligned inside the box. */
+esp_err_t esp_st7789v2_draw_7seg_box(int x, int y, int width, int height, int thickness, const char *text, uint16_t fg, uint16_t bg, esp_st7789v2_align_t align);
+/* Redraws the 7-segment box only when the string content changed. */
+esp_err_t esp_st7789v2_update_7seg_box_if_changed(esp_st7789v2_7seg_box_t *box, const char *text);
 /* Draws a text line aligned against the full screen width. */
 esp_err_t esp_st7789v2_draw_text_aligned(int y, const char *text, uint16_t fg, uint16_t bg, int scale, esp_st7789v2_align_t align);
 /* Clears a box and redraws text aligned inside that box. */

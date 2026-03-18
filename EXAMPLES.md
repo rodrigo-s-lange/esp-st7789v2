@@ -1,6 +1,6 @@
 # esp_st7789v2 examples
 
-## Inicializacao minima
+## Minimal initialization
 
 ```c
 ESP_ERROR_CHECK(esp_at_init(false));
@@ -9,7 +9,7 @@ ESP_ERROR_CHECK(esp_st7789v2_set_rotation(ESP_ST7789V2_ROTATION_0));
 ESP_ERROR_CHECK(esp_st7789v2_fill_screen(BLACK));
 ```
 
-## Geometrias basicas
+## Basic geometry
 
 ```c
 ESP_ERROR_CHECK(esp_st7789v2_draw_pixel(0, 0, WHITE));
@@ -20,10 +20,11 @@ ESP_ERROR_CHECK(esp_st7789v2_draw_round_rect(120, 30, 80, 40, 8, ORANGE));
 ESP_ERROR_CHECK(esp_st7789v2_fill_round_rect(210, 30, 80, 40, 10, TEAL));
 ESP_ERROR_CHECK(esp_st7789v2_draw_circle(80, 120, 20, MAGENTA));
 ESP_ERROR_CHECK(esp_st7789v2_fill_circle(150, 120, 18, BLUE));
-ESP_ERROR_CHECK(esp_st7789v2_draw_triangle(220, 140, 260, 90, 300, 140, WHITE));
+ESP_ERROR_CHECK(esp_st7789v2_draw_triangle(20, 120, 80, 40, 140, 120, WHITE));
+ESP_ERROR_CHECK(esp_st7789v2_fill_triangle(180, 120, 240, 40, 300, 120, BLUE));
 ```
 
-## Grade
+## Grid
 
 ```c
 ESP_ERROR_CHECK(esp_st7789v2_fill_screen(BLACK));
@@ -31,7 +32,7 @@ ESP_ERROR_CHECK(esp_st7789v2_draw_rect(0, 0, esp_st7789v2_width(), esp_st7789v2_
 ESP_ERROR_CHECK(esp_st7789v2_draw_grid(10, 10, 300, 150, 10, 5, DARK_GRAY));
 ```
 
-## Texto bitmap
+## Bitmap text
 
 ```c
 ESP_ERROR_CHECK(esp_st7789v2_draw_text(10, 10, "HELLO", WHITE, BLACK, 2));
@@ -39,7 +40,7 @@ ESP_ERROR_CHECK(esp_st7789v2_draw_text_aligned(40, "CENTER", YELLOW, BLACK, 2, E
 ESP_ERROR_CHECK(esp_st7789v2_draw_text_box(10, 70, 140, 24, "TEMP 25.4", WHITE, BLACK, 2, ESP_ST7789V2_ALIGN_LEFT));
 ```
 
-## Atualizacao por setor
+## Sector update
 
 ```c
 static esp_st7789v2_text_box_t s_temp_box = {
@@ -58,14 +59,15 @@ ESP_ERROR_CHECK(esp_st7789v2_update_text_box_if_changed(&s_temp_box, "TEMP 25.4"
 ESP_ERROR_CHECK(esp_st7789v2_update_text_box_if_changed(&s_temp_box, "TEMP 25.7"));
 ```
 
-## 7 segmentos
+## 7-segment
 
 ```c
 ESP_ERROR_CHECK(esp_st7789v2_draw_7seg_text(10, 10, "12:34", 48, 8, WHITE, BLACK));
-ESP_ERROR_CHECK(esp_st7789v2_draw_7seg_text(10, 70, "25Â°C", 42, 6, YELLOW, BLACK));
+ESP_ERROR_CHECK(esp_st7789v2_draw_7seg_text(10, 70, "25°C", 42, 6, YELLOW, BLACK));
+ESP_ERROR_CHECK(esp_st7789v2_draw_7seg_box(10, 120, 150, 48, 8, "25°C", WHITE, BLACK, ESP_ST7789V2_ALIGN_RIGHT));
 ```
 
-## Barra de progresso
+## Progress bar
 
 ```c
 static esp_st7789v2_progress_bar_t s_bar = {
