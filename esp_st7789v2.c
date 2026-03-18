@@ -158,6 +158,7 @@ static void handle_at_lcdbox(const char *param);
 static void handle_at_lcd7seg(const char *param);
 static void handle_at_lcd7box(const char *param);
 static void handle_at_lcdbar(const char *param);
+static void handle_at_lcd_query(const char *param);
 
 #define LCD_LOGI(...)  do { if (s_state.log_enabled) ESP_LOGI(TAG, __VA_ARGS__); } while (0)
 #define LCD_LOGW(...)  do { if (s_state.log_enabled) ESP_LOGW(TAG, __VA_ARGS__); } while (0)
@@ -1969,10 +1970,23 @@ static void handle_at_lcdbar(const char *param)
     AT(G "OK");
 }
 
+static void handle_at_lcd_query(const char *param)
+{
+    (void)param;
+    AT(C "LCD commands:");
+    AT(C "  draw  : " W "AT+LCDPX / AT+LCDLINE / AT+LCDHL / AT+LCDVL");
+    AT(C "  rect  : " W "AT+LCDRECT / AT+LCDRRECT / AT+LCDFILL / AT+LCDFRRECT");
+    AT(C "  shape : " W "AT+LCDCIRC / AT+LCDFCIRC / AT+LCDTRI / AT+LCDFTRI");
+    AT(C "  text  : " W "AT+LCDTXT / AT+LCDBOX / AT+LCD7SEG / AT+LCD7BOX");
+    AT(C "  ui    : " W "AT+LCDGRID / AT+LCDBAR / AT+LCDCLR");
+    AT(C "  panel : " W "%dx%d", esp_st7789v2_width(), esp_st7789v2_height());
+}
+
 static esp_err_t register_at_commands(void)
 {
     if (s_state.at_registered) return ESP_OK;
 
+    ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCD?", handle_at_lcd_query, "AT+LCD?"), TAG, "register AT failed");
     ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDCLR", handle_at_lcdclr, "AT+LCDCLR=0x0000"), TAG, "register AT failed");
     ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDPX", handle_at_lcdpx, "AT+LCDPX=10,10,0xFFFF"), TAG, "register AT failed");
     ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDLINE", handle_at_lcdline, "AT+LCDLINE=0,0,319,169,0xFFFF"), TAG, "register AT failed");
@@ -1993,6 +2007,26 @@ static esp_err_t register_at_commands(void)
     ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCD7BOX", handle_at_lcd7box, "AT+LCD7BOX=10,10,150,48,8,0xFFFF,0x0000,RIGHT,25°C"), TAG, "register AT failed");
     ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDBAR", handle_at_lcdbar, "AT+LCDBAR=10,10,200,20,0,100,75,0xFFFF,0x06C0,0x0000"), TAG, "register AT failed");
 
+    ESP_RETURN_ON_ERROR(esp_at_set_help_visible("AT+LCDCLR", false), TAG, "hide AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_set_help_visible("AT+LCDPX", false), TAG, "hide AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_set_help_visible("AT+LCDLINE", false), TAG, "hide AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_set_help_visible("AT+LCDHL", false), TAG, "hide AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_set_help_visible("AT+LCDVL", false), TAG, "hide AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_set_help_visible("AT+LCDRECT", false), TAG, "hide AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_set_help_visible("AT+LCDRRECT", false), TAG, "hide AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_set_help_visible("AT+LCDFILL", false), TAG, "hide AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_set_help_visible("AT+LCDFRRECT", false), TAG, "hide AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_set_help_visible("AT+LCDGRID", false), TAG, "hide AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_set_help_visible("AT+LCDCIRC", false), TAG, "hide AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_set_help_visible("AT+LCDFCIRC", false), TAG, "hide AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_set_help_visible("AT+LCDTRI", false), TAG, "hide AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_set_help_visible("AT+LCDFTRI", false), TAG, "hide AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_set_help_visible("AT+LCDTXT", false), TAG, "hide AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_set_help_visible("AT+LCDBOX", false), TAG, "hide AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_set_help_visible("AT+LCD7SEG", false), TAG, "hide AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_set_help_visible("AT+LCD7BOX", false), TAG, "hide AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_set_help_visible("AT+LCDBAR", false), TAG, "hide AT failed");
+
     s_state.at_registered = true;
     return ESP_OK;
 }
@@ -2001,6 +2035,7 @@ static void unregister_at_commands(void)
 {
     if (!s_state.at_registered) return;
 
+    (void)esp_at_unregister_cmd("AT+LCD?");
     (void)esp_at_unregister_cmd("AT+LCDCLR");
     (void)esp_at_unregister_cmd("AT+LCDPX");
     (void)esp_at_unregister_cmd("AT+LCDLINE");
