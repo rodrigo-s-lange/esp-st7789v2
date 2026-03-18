@@ -98,6 +98,7 @@ typedef struct {
     bool initialized;
     bool log_enabled;
     bool at_enabled;
+    bool at_registered;
 } st7789_state_t;
 
 static const char *TAG = "esp_st7789v2";
@@ -118,6 +119,8 @@ static esp_err_t esp_st7789v2_new_panel_st7789(const esp_lcd_panel_io_handle_t i
 static esp_err_t apply_rotation(esp_st7789v2_rotation_t rotation);
 static esp_err_t transform_rect(int x, int y, int width, int height, int *out_x, int *out_y);
 static inline uint16_t rgb565_swap(uint16_t color);
+static esp_err_t register_at_commands(void);
+static void unregister_at_commands(void);
 static inline bool ready(void);
 static esp_st7789v2_config_t default_config(void);
 static const uint8_t *font5x7_for_char(char c);
@@ -831,25 +834,11 @@ esp_err_t esp_st7789v2_init(bool log_enabled, bool at_enabled)
 
     s_state.initialized = true;
     if (s_state.at_enabled) {
-        ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDCLR", handle_at_lcdclr, "AT+LCDCLR=0x0000"), TAG, "register AT failed");
-        ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDPX", handle_at_lcdpx, "AT+LCDPX=10,10,0xFFFF"), TAG, "register AT failed");
-        ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDLINE", handle_at_lcdline, "AT+LCDLINE=0,0,319,169,0xFFFF"), TAG, "register AT failed");
-        ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDHL", handle_at_lcdhl, "AT+LCDHL=10,20,100,0,0xFFFF"), TAG, "register AT failed");
-        ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDVL", handle_at_lcdvl, "AT+LCDVL=20,10,0,80,0xFFFF"), TAG, "register AT failed");
-        ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDRECT", handle_at_lcdrect, "AT+LCDRECT=10,10,80,40,0xFFFF"), TAG, "register AT failed");
-        ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDRRECT", handle_at_lcdrrect, "AT+LCDRRECT=20,20,120,60,12,0xFFFF"), TAG, "register AT failed");
-        ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDFILL", handle_at_lcdfill, "AT+LCDFILL=10,10,80,40,0xFFFF"), TAG, "register AT failed");
-        ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDFRRECT", handle_at_lcdfrrect, "AT+LCDFRRECT=20,20,120,60,12,0xFFFF"), TAG, "register AT failed");
-        ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDGRID", handle_at_lcdgrid, "AT+LCDGRID=10,10,300,150,10,5,0xFFFF"), TAG, "register AT failed");
-        ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDCIRC", handle_at_lcdcirc, "AT+LCDCIRC=160,85,40,0,0xFFFF"), TAG, "register AT failed");
-        ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDFCIRC", handle_at_lcdfcirc, "AT+LCDFCIRC=160,85,40,0,0xFFFF"), TAG, "register AT failed");
-        ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDTRI", handle_at_lcdtri, "AT+LCDTRI=40,140,160,20,280,140,0xFFFF"), TAG, "register AT failed");
-        ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDFTRI", handle_at_lcdftri, "AT+LCDFTRI=40,140,160,20,280,140,0xFFFF"), TAG, "register AT failed");
-        ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDTXT", handle_at_lcdtxt, "AT+LCDTXT=10,10,2,0xFFFF,0x0000,HELLO"), TAG, "register AT failed");
-        ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDBOX", handle_at_lcdbox, "AT+LCDBOX=10,10,120,30,2,0xFFFF,0x0000,CENTER,HELLO"), TAG, "register AT failed");
-        ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCD7SEG", handle_at_lcd7seg, "AT+LCD7SEG=10,10,48,8,0xFFFF,0x0000,12:34"), TAG, "register AT failed");
-        ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCD7BOX", handle_at_lcd7box, "AT+LCD7BOX=10,10,150,48,8,0xFFFF,0x0000,RIGHT,25°C"), TAG, "register AT failed");
-        ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDBAR", handle_at_lcdbar, "AT+LCDBAR=10,10,200,20,0,100,75,0xFFFF,0x06C0,0x0000"), TAG, "register AT failed");
+        err = register_at_commands();
+        if (err != ESP_OK) {
+            (void)esp_st7789v2_deinit();
+            return err;
+        }
     }
     LCD_LOGI("initialized %dx%d gap=%d,%d", s_state.config.width, s_state.config.height, s_state.config.x_gap, s_state.config.y_gap);
     return ESP_OK;
@@ -858,6 +847,8 @@ esp_err_t esp_st7789v2_init(bool log_enabled, bool at_enabled)
 esp_err_t esp_st7789v2_deinit(void)
 {
     if (!ready()) return ESP_ERR_INVALID_STATE;
+
+    unregister_at_commands();
 
     if (s_state.panel_handle != NULL) {
         (void)esp_lcd_panel_disp_on_off(s_state.panel_handle, false);
@@ -1978,6 +1969,60 @@ static void handle_at_lcdbar(const char *param)
     AT(G "OK");
 }
 
+static esp_err_t register_at_commands(void)
+{
+    if (s_state.at_registered) return ESP_OK;
+
+    ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDCLR", handle_at_lcdclr, "AT+LCDCLR=0x0000"), TAG, "register AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDPX", handle_at_lcdpx, "AT+LCDPX=10,10,0xFFFF"), TAG, "register AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDLINE", handle_at_lcdline, "AT+LCDLINE=0,0,319,169,0xFFFF"), TAG, "register AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDHL", handle_at_lcdhl, "AT+LCDHL=10,20,100,0,0xFFFF"), TAG, "register AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDVL", handle_at_lcdvl, "AT+LCDVL=20,10,0,80,0xFFFF"), TAG, "register AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDRECT", handle_at_lcdrect, "AT+LCDRECT=10,10,80,40,0xFFFF"), TAG, "register AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDRRECT", handle_at_lcdrrect, "AT+LCDRRECT=20,20,120,60,12,0xFFFF"), TAG, "register AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDFILL", handle_at_lcdfill, "AT+LCDFILL=10,10,80,40,0xFFFF"), TAG, "register AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDFRRECT", handle_at_lcdfrrect, "AT+LCDFRRECT=20,20,120,60,12,0xFFFF"), TAG, "register AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDGRID", handle_at_lcdgrid, "AT+LCDGRID=10,10,300,150,10,5,0xFFFF"), TAG, "register AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDCIRC", handle_at_lcdcirc, "AT+LCDCIRC=160,85,40,0,0xFFFF"), TAG, "register AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDFCIRC", handle_at_lcdfcirc, "AT+LCDFCIRC=160,85,40,0,0xFFFF"), TAG, "register AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDTRI", handle_at_lcdtri, "AT+LCDTRI=40,140,160,20,280,140,0xFFFF"), TAG, "register AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDFTRI", handle_at_lcdftri, "AT+LCDFTRI=40,140,160,20,280,140,0xFFFF"), TAG, "register AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDTXT", handle_at_lcdtxt, "AT+LCDTXT=10,10,2,0xFFFF,0x0000,HELLO"), TAG, "register AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDBOX", handle_at_lcdbox, "AT+LCDBOX=10,10,120,30,2,0xFFFF,0x0000,CENTER,HELLO"), TAG, "register AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCD7SEG", handle_at_lcd7seg, "AT+LCD7SEG=10,10,48,8,0xFFFF,0x0000,12:34"), TAG, "register AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCD7BOX", handle_at_lcd7box, "AT+LCD7BOX=10,10,150,48,8,0xFFFF,0x0000,RIGHT,25°C"), TAG, "register AT failed");
+    ESP_RETURN_ON_ERROR(esp_at_register_cmd_example("AT+LCDBAR", handle_at_lcdbar, "AT+LCDBAR=10,10,200,20,0,100,75,0xFFFF,0x06C0,0x0000"), TAG, "register AT failed");
+
+    s_state.at_registered = true;
+    return ESP_OK;
+}
+
+static void unregister_at_commands(void)
+{
+    if (!s_state.at_registered) return;
+
+    (void)esp_at_unregister_cmd("AT+LCDCLR");
+    (void)esp_at_unregister_cmd("AT+LCDPX");
+    (void)esp_at_unregister_cmd("AT+LCDLINE");
+    (void)esp_at_unregister_cmd("AT+LCDHL");
+    (void)esp_at_unregister_cmd("AT+LCDVL");
+    (void)esp_at_unregister_cmd("AT+LCDRECT");
+    (void)esp_at_unregister_cmd("AT+LCDRRECT");
+    (void)esp_at_unregister_cmd("AT+LCDFILL");
+    (void)esp_at_unregister_cmd("AT+LCDFRRECT");
+    (void)esp_at_unregister_cmd("AT+LCDGRID");
+    (void)esp_at_unregister_cmd("AT+LCDCIRC");
+    (void)esp_at_unregister_cmd("AT+LCDFCIRC");
+    (void)esp_at_unregister_cmd("AT+LCDTRI");
+    (void)esp_at_unregister_cmd("AT+LCDFTRI");
+    (void)esp_at_unregister_cmd("AT+LCDTXT");
+    (void)esp_at_unregister_cmd("AT+LCDBOX");
+    (void)esp_at_unregister_cmd("AT+LCD7SEG");
+    (void)esp_at_unregister_cmd("AT+LCD7BOX");
+    (void)esp_at_unregister_cmd("AT+LCDBAR");
+    s_state.at_registered = false;
+}
+
 static esp_err_t apply_rotation(esp_st7789v2_rotation_t rotation)
 {
     esp_st7789v2_config_t rotated = s_state.base_config;
@@ -2239,3 +2284,4 @@ static esp_err_t panel_st7789_disp_on_off(esp_lcd_panel_t *panel, bool on_off)
     st7789_panel_t *st7789 = __containerof(panel, st7789_panel_t, base);
     return esp_lcd_panel_io_tx_param(st7789->io, on_off ? LCD_CMD_DISPON : LCD_CMD_DISPOFF, NULL, 0);
 }
+
